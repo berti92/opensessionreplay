@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Recorder Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .demo-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .danger {
+            background: #f44336;
+        }
+        .danger:hover {
+            background: #da190b;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .interactive-demo {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .counter {
+            text-align: center;
+            font-size: 24px;
+            margin: 20px 0;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: white;
+            color: black;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 300px;
+            text-align: center;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .recording {
+            background: #4CAF50;
+        }
+        .not-recording {
+            background: #f44336;
+        }
+        @media (max-width: 600px) {
+            .interactive-demo {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Recording Status Indicator -->
+    <div id="recordingStatus" class="status recording">
+        🔴 Aufzeichnung läuft
+    </div>
+
+    <div class="container">
+        <h1>🎥 Session Recorder Demo</h1>
+        
+        <div class="demo-section">
+            <h2>Willkommen zur Demo!</h2>
+            <p>Diese Seite wird mit dem Session Recorder aufgezeichnet. Alle Ihre Interaktionen werden erfasst und können später im Admin-Backend angesehen werden.</p>
+            <p><strong>Admin-Backend:</strong> <a href="http://localhost:8080" target="_blank" style="color: #87CEEB;">http://localhost:8080</a></p>
+        </div>
+
+        <div class="demo-section">
+            <h3>Interaktive Elemente</h3>
+            
+            <div class="interactive-demo">
+                <div>
+                    <h4>Formular Demo</h4>
+                    <input type="text" id="nameInput" placeholder="Ihr Name">
+                    <input type="email" id="emailInput" placeholder="Ihre E-Mail">
+                    <textarea id="messageInput" placeholder="Ihre Nachricht" rows="4"></textarea>
+                    <button onclick="submitForm()">Formular absenden</button>
+                </div>
+                
+                <div>
+                    <h4>Counter Demo</h4>
+                    <div class="counter">
+                        Zähler: <span id="counterValue">0</span>
+                    </div>
+                    <button onclick="incrementCounter()">+1</button>
+                    <button onclick="decrementCounter()">-1</button>
+                    <button onclick="resetCounter()" class="danger">Reset</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h3>Weitere Aktionen</h3>
+            <button onclick="showModal()">Modal öffnen</button>
+            <button onclick="changeBackground()">Hintergrund ändern</button>
+            <button onclick="addElement()">Element hinzufügen</button>
+            <button onclick="scrollToTop()">Nach oben scrollen</button>
+        </div>
+
+        <div class="demo-section">
+            <h3>Dynamischer Inhalt</h3>
+            <div id="dynamicContent">
+                <p>Dieser Bereich wird dynamisch verändert...</p>
+            </div>
+            <button onclick="updateContent()">Inhalt aktualisieren</button>
+        </div>
+
+        <!-- Lange Seite zum Scrollen -->
+        <div class="demo-section">
+            <h3>Scroll-Demo</h3>
+            <p>Scrollen Sie nach unten, um das Scroll-Verhalten zu testen.</p>
+            <div style="height: 500px; background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.1)); border-radius: 10px; margin: 20px 0;">
+                <div style="padding: 50px; text-align: center;">
+                    <h4>Bereich zum Scrollen</h4>
+                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+                    <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+                    <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+                    <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="demoModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="hideModal()">&times;</span>
+            <h3>Demo Modal</h3>
+            <p>Dies ist ein Modal-Fenster für die Demo.</p>
+            <button onclick="hideModal()">Schließen</button>
+        </div>
+    </div>
+
+    <!-- Include rrweb from local server -->
+    <script src="http://localhost:8080/rrweb.min.js"></script>
+
+    <!-- Include our session recorder -->
+    <script src="http://localhost:8080/recorder.js"></script>
+
+    <script>
+        let counter = 0;
+        let backgrounds = [
+            'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+            'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+            'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+            'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+        ];
+        let currentBg = 0;
+
+        function incrementCounter() {
+            counter++;
+            document.getElementById('counterValue').textContent = counter;
+        }
+
+        function decrementCounter() {
+            counter--;
+            document.getElementById('counterValue').textContent = counter;
+        }
+
+        function resetCounter() {
+            counter = 0;
+            document.getElementById('counterValue').textContent = counter;
+        }
+
+        function submitForm() {
+            const name = document.getElementById('nameInput').value;
+            const email = document.getElementById('emailInput').value;
+            const message = document.getElementById('messageInput').value;
+            
+            if (name && email && message) {
+                alert('Formular erfolgreich abgesendet!\nName: ' + name + '\nE-Mail: ' + email);
+                // Clear form
+                document.getElementById('nameInput').value = '';
+                document.getElementById('emailInput').value = '';
+                document.getElementById('messageInput').value = '';
+            } else {
+                alert('Bitte füllen Sie alle Felder aus!');
+            }
+        }
+
+        function showModal() {
+            document.getElementById('demoModal').style.display = 'block';
+        }
+
+        function hideModal() {
+            document.getElementById('demoModal').style.display = 'none';
+        }
+
+        function changeBackground() {
+            currentBg = (currentBg + 1) % backgrounds.length;
+            document.body.style.background = backgrounds[currentBg];
+        }
+
+        function addElement() {
+            const dynamicContent = document.getElementById('dynamicContent');
+            const newElement = document.createElement('div');
+            newElement.style.cssText = 'background: rgba(255,255,255,0.2); padding: 10px; margin: 10px 0; border-radius: 5px; animation: fadeIn 0.5s;';
+            newElement.innerHTML = '<p>Neues Element hinzugefügt um ' + new Date().toLocaleTimeString() + '</p>';
+            dynamicContent.appendChild(newElement);
+        }
+
+        function updateContent() {
+            const dynamicContent = document.getElementById('dynamicContent');
+            const quotes = [
+                "Die beste Zeit, einen Baum zu pflanzen, war vor 20 Jahren. Die zweitbeste Zeit ist jetzt.",
+                "Der Weg ist das Ziel.",
+                "Was wir heute tun, entscheidet darüber, wie die Welt von morgen aussieht.",
+                "Innovation unterscheidet zwischen einem Führer und einem Folger.",
+                "Die Zukunft gehört denen, die an die Schönheit ihrer Träume glauben."
+            ];
+            
+            const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+            dynamicContent.innerHTML = `
+                <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; border-left: 4px solid #87CEEB;">
+                    <p><strong>Zitat des Moments:</strong></p>
+                    <p><em>"${randomQuote}"</em></p>
+                    <p><small>Aktualisiert um: ${new Date().toLocaleTimeString()}</small></p>
+                </div>
+            `;
+        }
+
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Add some CSS for animations
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('demoModal');
+            if (event.target === modal) {
+                hideModal();
+            }
+        }
+
+        // Update recording status
+        function updateRecordingStatus() {
+            const status = document.getElementById('recordingStatus');
+            if (window.sessionRecorder && window.sessionRecorder.isRecording) {
+                status.className = 'status recording';
+                status.innerHTML = '🔴 Aufzeichnung läuft';
+            } else {
+                status.className = 'status not-recording';
+                status.innerHTML = '⚫ Nicht aufgezeichnet';
+            }
+        }
+
+        // Check recording status periodically
+        setInterval(updateRecordingStatus, 1000);
+
+        // Initial content update
+        setTimeout(updateContent, 1000);
+
+        console.log('Demo page loaded - Session recording should be active!');
+    </script>
+</body>
+</html>

@@ -1,0 +1,574 @@
+package main
+
+import (
+	"crypto/subtle"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// Session represents a recorded session
+type Session struct {
+	ID        int       `json:"id"`
+	SessionID string    `json:"session_id"`
+	URL       string    `json:"url"`
+	Title     string    `json:"title"`
+	UserAgent string    `json:"user_agent"`
+	Events    string    `json:"events"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Viewport  string    `json:"viewport"`
+}
+
+// SessionMetadata represents session metadata
+type SessionMetadata struct {
+	SessionID string `json:"sessionId"`
+	URL       string `json:"url"`
+	Title     string `json:"title"`
+	UserAgent string `json:"userAgent"`
+	Timestamp string `json:"timestamp"`
+	Viewport  struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	} `json:"viewport"`
+}
+
+// EventBatch represents a batch of rrweb events
+type EventBatch struct {
+	SessionID string        `json:"sessionId"`
+	Events    []interface{} `json:"events"`
+	Timestamp string        `json:"timestamp"`
+}
+
+// Server holds the database connection and handlers
+type Server struct {
+	db       *sql.DB
+	username string
+	password string
+}
+
+func main() {
+	server := &Server{}
+
+	// Initialize database
+	if err := server.initDB(); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
+	defer server.db.Close()
+
+	// Get port from environment variable or use default
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Get auth credentials from environment variables
+	server.username = os.Getenv("BASIC_AUTH_USER")
+	server.password = os.Getenv("BASIC_AUTH_PASS")
+
+	if server.username == "" {
+		server.username = "admin"
+	}
+	if server.password == "" {
+		log.Println("Warning: BASIC_AUTH_PASS not set, using default password")
+		server.password = "admin"
+	}
+
+	// Routes
+	// Admin routes with BasicAuth
+	http.HandleFunc("/", server.basicAuth(server.adminHandler))
+	http.HandleFunc("/api/sessions", server.basicAuth(server.corsMiddleware(server.getSessionsHandler)))
+	http.HandleFunc("/session/", server.basicAuth(server.viewSessionHandler))
+
+	// Public API routes (for recording)
+	http.HandleFunc("/api/sessions/metadata", server.corsMiddleware(server.sessionMetadataHandler))
+	http.HandleFunc("/api/sessions/events", server.corsMiddleware(server.sessionEventsHandler))
+
+	// Static files
+	http.HandleFunc("/recorder.js", server.serveRecorderJS)
+	http.HandleFunc("/rrweb.min.js", server.serveRrwebJS)
+	http.HandleFunc("/rrweb-player.js", server.serveRrwebPlayerJS)
+	http.HandleFunc("/rrweb-player.css", server.serveRrwebPlayerCSS)
+
+	fmt.Printf("Server starting on :%s\n", port)
+	fmt.Printf("Admin interface: http://localhost:%s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func (s *Server) initDB() error {
+	var err error
+	s.db, err = sql.Open("sqlite3", "./sessions.db")
+	if err != nil {
+		return err
+	}
+
+	// Create sessions table
+	query := `
+	CREATE TABLE IF NOT EXISTS sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT UNIQUE NOT NULL,
+		url TEXT NOT NULL,
+		title TEXT NOT NULL,
+		user_agent TEXT NOT NULL,
+		events TEXT DEFAULT '',
+		viewport TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_session_id ON sessions(session_id);
+	CREATE INDEX IF NOT EXISTS idx_created_at ON sessions(created_at DESC);
+	`
+
+	_, err = s.db.Exec(query)
+	return err
+}
+
+func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+func (s *Server) basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(s.username)) != 1 || subtle.ConstantTimeCompare([]byte(pass), []byte(s.password)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) sessionMetadataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var metadata SessionMetadata
+	if err := json.NewDecoder(r.Body).Decode(&metadata); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	viewport, _ := json.Marshal(metadata.Viewport)
+
+	query := `
+	INSERT OR REPLACE INTO sessions (session_id, url, title, user_agent, viewport, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	now := time.Now()
+	_, err := s.db.Exec(query, metadata.SessionID, metadata.URL, metadata.Title,
+		metadata.UserAgent, string(viewport), now, now)
+	if err != nil {
+		log.Printf("Error saving session metadata: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) sessionEventsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var batch EventBatch
+	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing events
+	var existingEvents string
+	err := s.db.QueryRow("SELECT events FROM sessions WHERE session_id = ?", batch.SessionID).Scan(&existingEvents)
+	if err != nil {
+		log.Printf("Error getting existing events: %v", err)
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Append new events
+	var allEvents []interface{}
+	if existingEvents != "" {
+		if err := json.Unmarshal([]byte(existingEvents), &allEvents); err != nil {
+			log.Printf("Error unmarshaling existing events: %v", err)
+		}
+	}
+
+	allEvents = append(allEvents, batch.Events...)
+	eventsJSON, _ := json.Marshal(allEvents)
+
+	// Update session with new events
+	query := `UPDATE sessions SET events = ?, updated_at = ? WHERE session_id = ?`
+	_, err = s.db.Exec(query, string(eventsJSON), time.Now(), batch.SessionID)
+	if err != nil {
+		log.Printf("Error updating session events: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) getSessionsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	limit := 20
+	offset := (page - 1) * limit
+
+	// Get total count
+	var total int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE events != ''").Scan(&total)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get sessions
+	query := `
+	SELECT id, session_id, url, title, user_agent, created_at, updated_at, viewport
+	FROM sessions 
+	WHERE events != ''
+	ORDER BY updated_at DESC 
+	LIMIT ? OFFSET ?
+	`
+
+	rows, err := s.db.Query(query, limit, offset)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var sessions []Session
+	for rows.Next() {
+		var session Session
+		err := rows.Scan(&session.ID, &session.SessionID, &session.URL, &session.Title,
+			&session.UserAgent, &session.CreatedAt, &session.UpdatedAt, &session.Viewport)
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+
+	response := map[string]interface{}{
+		"sessions": sessions,
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"pages":    (total + limit - 1) / limit,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl := `
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Recorder Admin</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #007cba; padding-bottom: 10px; }
+        .sessions-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .sessions-table th, .sessions-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .sessions-table th { background-color: #007cba; color: white; }
+        .sessions-table tr:hover { background-color: #f5f5f5; }
+        .session-link { color: #007cba; text-decoration: none; font-weight: bold; }
+        .session-link:hover { text-decoration: underline; }
+        .pagination { margin: 20px 0; text-align: center; }
+        .pagination a, .pagination span { margin: 0 5px; padding: 8px 12px; text-decoration: none; border: 1px solid #ddd; color: #007cba; }
+        .pagination .current { background-color: #007cba; color: white; }
+        .user-agent { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: #666; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .error { color: #d32f2f; text-align: center; padding: 20px; }
+        .stats { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Session Recorder Admin</h1>
+        <div id="stats" class="stats"></div>
+        <div id="content" class="loading">Lade Sessions...</div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        
+        async function loadSessions(page = 1) {
+            try {
+                document.getElementById('content').innerHTML = '<div class="loading">Lade Sessions...</div>';
+                
+                const response = await fetch('/api/sessions?page=' + page);
+                const data = await response.json();
+                
+                currentPage = page;
+                renderSessions(data);
+                renderStats(data);
+            } catch (error) {
+                document.getElementById('content').innerHTML = '<div class="error">Fehler beim Laden der Sessions: ' + error.message + '</div>';
+            }
+        }
+        
+        function renderStats(data) {
+            const stats = document.getElementById('stats');
+            stats.innerHTML = '📊 <strong>' + data.total + '</strong> Sessions insgesamt | Seite <strong>' + data.page + '</strong> von <strong>' + data.pages + '</strong>';
+        }
+        
+        function renderSessions(data) {
+            const content = document.getElementById('content');
+            
+            if (data.sessions.length === 0) {
+                content.innerHTML = '<div class="error">Keine Sessions gefunden.</div>';
+                return;
+            }
+            
+            let html = '<table class="sessions-table"><thead><tr>';
+            html += '<th>Session ID</th>';
+            html += '<th>URL</th>';
+            html += '<th>Titel</th>';
+            html += '<th>Datum/Zeit</th>';
+            html += '<th>Browser Agent</th>';
+            html += '<th>Aktion</th>';
+            html += '</tr></thead><tbody>';
+            
+            data.sessions.forEach(session => {
+                const date = new Date(session.created_at).toLocaleString('de-DE');
+                html += '<tr>';
+                html += '<td>' + session.session_id.substring(0, 20) + '...</td>';
+                html += '<td><a href="' + session.url + '" target="_blank">' + (session.url.length > 50 ? session.url.substring(0, 50) + '...' : session.url) + '</a></td>';
+                html += '<td>' + session.title + '</td>';
+                html += '<td>' + date + '</td>';
+                html += '<td class="user-agent">' + session.user_agent + '</td>';
+                html += '<td><a href="/session/' + session.session_id + '" class="session-link" target="_blank">📽️ Ansehen</a></td>';
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            
+            // Pagination
+            html += '<div class="pagination">';
+            if (data.page > 1) {
+                html += '<a href="#" onclick="loadSessions(' + (data.page - 1) + ')">← Vorherige</a>';
+            }
+            
+            for (let i = Math.max(1, data.page - 2); i <= Math.min(data.pages, data.page + 2); i++) {
+                if (i === data.page) {
+                    html += '<span class="current">' + i + '</span>';
+                } else {
+                    html += '<a href="#" onclick="loadSessions(' + i + ')">' + i + '</a>';
+                }
+            }
+            
+            if (data.page < data.pages) {
+                html += '<a href="#" onclick="loadSessions(' + (data.page + 1) + ')">Nächste →</a>';
+            }
+            html += '</div>';
+            
+            content.innerHTML = html;
+        }
+        
+        // Load sessions on page load
+        loadSessions();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(() => loadSessions(currentPage), 30000);
+    </script>
+</body>
+</html>
+`
+
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(tmpl))
+}
+
+func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(r.URL.Path, "/session/")
+
+	var session Session
+	query := `SELECT session_id, url, title, user_agent, events, created_at, viewport FROM sessions WHERE session_id = ?`
+	err := s.db.QueryRow(query, sessionID).Scan(
+		&session.SessionID, &session.URL, &session.Title,
+		&session.UserAgent, &session.Events, &session.CreatedAt, &session.Viewport)
+
+	if err != nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Validate that events is valid JSON
+	if session.Events == "" {
+		session.Events = "[]"
+	}
+
+	tmpl := `
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Replay: {{.Title}}</title>
+    <link rel="stylesheet" href="/rrweb-player.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #1a1a1a;
+            color: white;
+        }
+        .header {
+            background: #333;
+            padding: 15px;
+            border-bottom: 2px solid #007cba;
+        }
+        .header h1 {
+            margin: 0;
+            color: #007cba;
+        }
+        .session-info {
+            background: #222;
+            padding: 10px 15px;
+            font-size: 14px;
+        }
+        .session-info span {
+            margin-right: 20px;
+        }
+        #player {
+            width: 100%;
+            height: calc(100vh - 100px);
+        }
+        .error {
+            color: #f44336;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+    <script src="/rrweb.min.js"></script>
+    <script src="/rrweb-player.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 Session Replay</h1>
+    </div>
+
+    <div class="session-info">
+        <span><strong>URL:</strong> <a href="{{.URL}}" target="_blank" style="color: #007cba;">{{.URL}}</a></span>
+        <span><strong>Titel:</strong> {{.Title}}</span>
+        <span><strong>Datum:</strong> {{.CreatedAt.Format "02.01.2006 15:04:05"}}</span>
+    </div>
+
+    <div id="player"></div>
+
+    <script>
+        let events = [];
+        try {
+            // Events are already a JSON string from the database
+            events = {{rawJS .Events}};
+        } catch (error) {
+            console.error('Error parsing events:', error);
+            events = [];
+        }
+
+        // Initialize the rrweb player when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!events || !Array.isArray(events) || events.length === 0) {
+                document.getElementById('player').innerHTML = '<div class="error">Keine Aufzeichnungsdaten verfügbar.</div>';
+                return;
+            }
+
+            try {
+                // Create the rrweb player with built-in controls
+                new rrwebPlayer({
+                    target: document.getElementById('player'),
+                    props: {
+                        events: events,
+                        width: window.innerWidth,
+                        height: window.innerHeight - 100,
+                        autoPlay: false,
+                        showController: true,
+                        skipInactive: true
+                    }
+                });
+
+                console.log('rrweb Player initialized with', events.length, 'events');
+            } catch (error) {
+                console.error('Error initializing rrweb player:', error);
+                document.getElementById('player').innerHTML = '<div class="error">Fehler beim Laden der Aufzeichnung: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>
+`
+
+	// Create a template with custom function to output raw JS
+	funcMap := template.FuncMap{
+		"rawJS": func(s string) template.JS {
+			return template.JS(s)
+		},
+	}
+
+	t, err := template.New("session").Funcs(funcMap).Parse(tmpl)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	t.Execute(w, session)
+}
+
+func (s *Server) serveRecorderJS(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./recorder.js")
+}
+
+func (s *Server) serveRrwebJS(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./node_modules/rrweb/dist/rrweb.min.js")
+}
+
+func (s *Server) serveRrwebPlayerJS(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./node_modules/rrweb-player/dist/index.js")
+}
+
+func (s *Server) serveRrwebPlayerCSS(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./node_modules/rrweb-player/dist/style.css")
+}

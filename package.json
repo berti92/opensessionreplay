@@ -1,0 +1,24 @@
+{
+  "name": "opensessionreplay",
+  "version": "1.0.0",
+  "description": "Session Recording System with rrweb and Go backend",
+  "main": "recorder.js",
+  "scripts": {
+    "dev": "./dev.sh",
+    "build": "./build.sh",
+    "start": "go run main.go",
+    "demo": "open demo.html"
+  },
+  "keywords": [
+    "session-recording",
+    "rrweb",
+    "go",
+    "sqlite"
+  ],
+  "author": "Session Recorder Project",
+  "license": "MIT",
+  "dependencies": {
+    "rrweb": "^2.0.0-alpha.4",
+    "rrweb-player": "^1.0.0-alpha.4"
+  }
+}
