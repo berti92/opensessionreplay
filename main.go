@@ -106,7 +106,13 @@ func main() {
 
 func (s *Server) initDB() error {
 	var err error
-	s.db, err = sql.Open("sqlite3", "./sessions.db")
+	// Use data directory if it exists, otherwise current directory
+	dbPath := "./sessions.db"
+	if _, err := os.Stat("./data"); err == nil {
+		dbPath = "./data/sessions.db"
+	}
+
+	s.db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return err
 	}
