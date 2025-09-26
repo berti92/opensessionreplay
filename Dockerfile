@@ -54,16 +54,6 @@ COPY --from=go-build /app/recorder.js .
 COPY --from=go-build /app/demo.html .
 COPY --from=go-build /app/node_modules ./node_modules
 
-# Create non-root user
-RUN groupadd -g 1001 appgroup && \
-    useradd -u 1001 -g appgroup -m -s /bin/bash appuser
-
-# Change ownership of app directory
-RUN chown -R appuser:appgroup /app
-
-# Switch to non-root user
-USER appuser
-
 # Expose port
 EXPOSE 8080
 
