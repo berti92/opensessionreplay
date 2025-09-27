@@ -51,9 +51,11 @@ type EventBatch struct {
 
 // Server holds the database connection and handlers
 type Server struct {
-	db       *sql.DB
-	username string
-	password string
+	db         *sql.DB
+	username   string
+	password   string
+	rrWebJs    string
+	recorderJs string
 }
 
 func main() {
@@ -74,6 +76,8 @@ func main() {
 	// Get auth credentials from environment variables
 	server.username = os.Getenv("BASIC_AUTH_USER")
 	server.password = os.Getenv("BASIC_AUTH_PASS")
+	server.rrWebJs = os.Getenv("RRWEB_JS_NAME")
+	server.recorderJs = os.Getenv("RECORDER_JS_NAME")
 
 	if server.username == "" {
 		server.username = "admin"
@@ -81,6 +85,12 @@ func main() {
 	if server.password == "" {
 		log.Println("Warning: BASIC_AUTH_PASS not set, using default password")
 		server.password = "admin"
+	}
+	if server.rrWebJs == "" {
+		server.rrWebJs = "rrweb.min.js"
+	}
+	if server.recorderJs == "" {
+		server.recorderJs = "recorder.js"
 	}
 
 	// Routes
@@ -94,8 +104,8 @@ func main() {
 	http.HandleFunc("/api/sessions/events", server.corsMiddleware(server.sessionEventsHandler))
 
 	// Static files
-	http.HandleFunc("/recorder.js", server.serveRecorderJS)
-	http.HandleFunc("/rrweb.min.js", server.serveRrwebJS)
+	http.HandleFunc("/"+server.recorderJs, server.serveRecorderJS)
+	http.HandleFunc("/"+server.rrWebJs, server.serveRrwebJS)
 	http.HandleFunc("/rrweb-player.js", server.serveRrwebPlayerJS)
 	http.HandleFunc("/rrweb-player.css", server.serveRrwebPlayerCSS)
 
