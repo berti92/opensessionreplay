@@ -498,7 +498,7 @@ func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
             padding: 20px;
         }
     </style>
-    <script src="/rrweb.min.js"></script>
+    <script src="/{{.RrWebJs}}"></script>
     <script src="/rrweb-player.js"></script>
 </head>
 <body>
@@ -569,8 +569,16 @@ func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+    data := struct {
+        Session
+        RrWebJs string
+    }{
+        Session: session,
+        RrWebJs: s.rrWebJs,
+    }
+
 	w.Header().Set("Content-Type", "text/html")
-	t.Execute(w, session)
+	t.Execute(w, data)
 }
 
 func (s *Server) serveRecorderJS(w http.ResponseWriter, r *http.Request) {
