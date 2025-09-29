@@ -1,13 +1,16 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -192,24 +195,94 @@ func (s *Server) sessionMetadataHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Get client IP
+	clientIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		clientIP = strings.Split(forwarded, ",")[0]
+	}
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		clientIP = realIP
+	}
+	// Remove port from IP if present
+	if idx := strings.LastIndex(clientIP, ":"); idx != -1 {
+		// Check if this is IPv6 (has multiple colons) or IPv4:port
+		if strings.Count(clientIP, ":") == 1 {
+			// IPv4:port format
+			clientIP = clientIP[:idx]
+		} else if strings.HasPrefix(clientIP, "[") {
+			// IPv6 format like [::1]:port
+			if endIdx := strings.LastIndex(clientIP, "]:"); endIdx != -1 {
+				clientIP = clientIP[1:endIdx]
+			}
+		}
+	}
+
+	// Extract domain from URL
+	parsedURL, err := url.Parse(metadata.URL)
+	var domain string
+	if err == nil {
+		domain = parsedURL.Host
+	} else {
+		domain = "unknown"
+	}
+
+	// Generate deterministic session ID from date + domain + IP + user agent
+	today := time.Now().Format("2006-01-02")
+	sessionID := generateSessionID(today, domain, clientIP, metadata.UserAgent)
+
 	viewport, _ := json.Marshal(metadata.Viewport)
-
-	query := `
-	INSERT OR REPLACE INTO sessions (session_id, url, title, user_agent, viewport, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?)
-	`
-
 	now := time.Now()
-	_, err := s.db.Exec(query, metadata.SessionID, metadata.URL, metadata.Title,
-		metadata.UserAgent, string(viewport), now, now)
-	if err != nil {
-		log.Printf("Error saving session metadata: %v", err)
+
+	// Check if session already exists
+	var existingEvents string
+	err = s.db.QueryRow("SELECT events FROM sessions WHERE session_id = ?", sessionID).Scan(&existingEvents)
+
+	if err == sql.ErrNoRows {
+		// Create new session
+		query := `
+		INSERT INTO sessions (session_id, url, title, user_agent, viewport, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		`
+		_, err = s.db.Exec(query, sessionID, metadata.URL, metadata.Title,
+			metadata.UserAgent, string(viewport), now, now)
+		if err != nil {
+			log.Printf("Error creating session: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else if err == nil {
+		// Update existing session (merge)
+		query := `
+		UPDATE sessions
+		SET url = ?, title = ?, user_agent = ?, viewport = ?, updated_at = ?
+		WHERE session_id = ?
+		`
+		_, err = s.db.Exec(query, metadata.URL, metadata.Title,
+			metadata.UserAgent, string(viewport), now, sessionID)
+		if err != nil {
+			log.Printf("Error updating session: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		log.Printf("Error checking session: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	// Return the actual session ID that will be used
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+		"sessionId": sessionID,
+	})
+}
+
+// generateSessionID creates a deterministic session ID from date, domain, IP and user agent
+func generateSessionID(date, domain, ip, userAgent string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(date + "|" + domain + "|" + ip + "|" + userAgent))
+	return hex.EncodeToString(hasher.Sum(nil))[:16]
 }
 
 func (s *Server) sessionEventsHandler(w http.ResponseWriter, r *http.Request) {
@@ -224,11 +297,50 @@ func (s *Server) sessionEventsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get existing events
+	// Since client doesn't know our generated session ID, we need to find it
+	// We'll use the most recent session that matches today's date
+	// Get client IP
+	clientIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		clientIP = strings.Split(forwarded, ",")[0]
+	}
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		clientIP = realIP
+	}
+	// Remove port from IP if present
+	if idx := strings.LastIndex(clientIP, ":"); idx != -1 {
+		// Check if this is IPv6 (has multiple colons) or IPv4:port
+		if strings.Count(clientIP, ":") == 1 {
+			// IPv4:port format
+			clientIP = clientIP[:idx]
+		} else if strings.HasPrefix(clientIP, "[") {
+			// IPv6 format like [::1]:port
+			if endIdx := strings.LastIndex(clientIP, "]:"); endIdx != -1 {
+				clientIP = clientIP[1:endIdx]
+			}
+		}
+	}
+
+	// Find today's session for this IP and user agent
+	// We need the user agent from the request header
+	userAgent := r.Header.Get("User-Agent")
+
+	// Try to find the session by matching date and user agent in the database
+	query := `
+	SELECT session_id, events
+	FROM sessions
+	WHERE date(created_at) = date('now', 'localtime')
+	AND user_agent = ?
+	ORDER BY updated_at DESC
+	LIMIT 1
+	`
+
+	var sessionID string
 	var existingEvents string
-	err := s.db.QueryRow("SELECT events FROM sessions WHERE session_id = ?", batch.SessionID).Scan(&existingEvents)
+	err := s.db.QueryRow(query, userAgent).Scan(&sessionID, &existingEvents)
+
 	if err != nil {
-		log.Printf("Error getting existing events: %v", err)
+		log.Printf("Error finding session for events: %v (client IP: %s)", err, clientIP)
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
@@ -245,8 +357,8 @@ func (s *Server) sessionEventsHandler(w http.ResponseWriter, r *http.Request) {
 	eventsJSON, _ := json.Marshal(allEvents)
 
 	// Update session with new events
-	query := `UPDATE sessions SET events = ?, updated_at = ? WHERE session_id = ?`
-	_, err = s.db.Exec(query, string(eventsJSON), time.Now(), batch.SessionID)
+	updateQuery := `UPDATE sessions SET events = ?, updated_at = ? WHERE session_id = ?`
+	_, err = s.db.Exec(updateQuery, string(eventsJSON), time.Now(), sessionID)
 	if err != nil {
 		log.Printf("Error updating session events: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -254,7 +366,7 @@ func (s *Server) sessionEventsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "sessionId": sessionID})
 }
 
 func (s *Server) getSessionsHandler(w http.ResponseWriter, r *http.Request) {
