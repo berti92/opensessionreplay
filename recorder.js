@@ -14,7 +14,6 @@
     
     // Check if rrweb is available
     if (typeof rrweb === 'undefined') {
-        console.error('SessionRecorder: rrweb library not found. Please include rrweb before this script.');
         return;
     }
     
@@ -32,8 +31,6 @@
         }
         
         init() {
-            console.log('SessionRecorder: Starting session recording', this.sessionId);
-            
             // Start recording
             this.stopFn = rrweb.record({
                 emit: (event) => {
@@ -131,7 +128,6 @@
                 },
                 body: JSON.stringify(data)
             }).catch(error => {
-                console.error('SessionRecorder: Failed to send data', error);
             });
         }
         
@@ -145,7 +141,6 @@
                     this.sendBatch();
                 }
                 
-                console.log('SessionRecorder: Recording stopped');
             }
         }
     }
