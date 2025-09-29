@@ -7,6 +7,7 @@ services:
       - PORT=8080
       - BASIC_AUTH_USER=admin
       - BASIC_AUTH_PASS=admin
+      - PROXY_URL=http://localhost:8080
     volumes:
       - ./db_data:/app/data
     restart: unless-stopped

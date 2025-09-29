@@ -56,6 +56,7 @@ type Server struct {
 	password   string
 	rrWebJs    string
 	recorderJs string
+	proxyURL   string
 }
 
 func main() {
@@ -78,6 +79,7 @@ func main() {
 	server.password = os.Getenv("BASIC_AUTH_PASS")
 	server.rrWebJs = os.Getenv("RRWEB_JS_NAME")
 	server.recorderJs = os.Getenv("RECORDER_JS_NAME")
+	server.proxyURL = os.Getenv("PROXY_URL")
 
 	if server.username == "" {
 		server.username = "admin"
@@ -91,6 +93,9 @@ func main() {
 	}
 	if server.recorderJs == "" {
 		server.recorderJs = "recorder.js"
+	}
+	if server.proxyURL == "" {
+		server.proxyURL = fmt.Sprintf("http://localhost:%s", port)
 	}
 
 	// Routes
@@ -569,20 +574,36 @@ func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    data := struct {
-        Session
-        RrWebJs string
-    }{
-        Session: session,
-        RrWebJs: s.rrWebJs,
-    }
+	data := struct {
+		Session
+		RrWebJs string
+	}{
+		Session: session,
+		RrWebJs: s.rrWebJs,
+	}
 
 	w.Header().Set("Content-Type", "text/html")
 	t.Execute(w, data)
 }
 
 func (s *Server) serveRecorderJS(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "./recorder.js")
+	// Read the recorder.js file
+	content, err := os.ReadFile("./recorder.js")
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Replace the placeholder with actual proxy URL
+	modifiedContent := strings.Replace(
+		string(content),
+		"http://localhost:8080",
+		s.proxyURL,
+		1,
+	)
+
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Write([]byte(modifiedContent))
 }
 
 func (s *Server) serveRrwebJS(w http.ResponseWriter, r *http.Request) {
