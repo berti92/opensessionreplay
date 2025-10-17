@@ -92,9 +92,11 @@ func main() {
 		server.password = "admin"
 	}
 	if server.rrWebJs == "" {
+		log.Println("Warning: RRWEB_JS_NAME not set, using default rrweb.min.js")
 		server.rrWebJs = "rrweb.min.js"
 	}
 	if server.recorderJs == "" {
+		log.Println("Warning: RECORDER_JS_NAME not set, using default recorder.js")
 		server.recorderJs = "recorder.js"
 	}
 	if server.proxyURL == "" {
