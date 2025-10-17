@@ -508,7 +508,7 @@ func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
             html += '</tr></thead><tbody>';
             
             data.sessions.forEach(session => {
-                const date = new Date(session.created_at).toLocaleString('de-DE');
+                const date = new Date(session.created_at).toLocaleString('en-US');
                 html += '<tr>';
                 html += '<td>' + session.session_id.substring(0, 20) + '...</td>';
                 html += '<td><a href="' + session.url + '" target="_blank">' + (session.url.length > 50 ? session.url.substring(0, 50) + '...' : session.url) + '</a></td>';
@@ -629,7 +629,7 @@ func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
     <div class="session-info">
         <span><strong>URL:</strong> <a href="{{.URL}}" target="_blank" style="color: #007cba;">{{.URL}}</a></span>
         <span><strong>Title:</strong> {{.Title}}</span>
-        <span><strong>Date:</strong> {{.CreatedAt.Format "02.01.2006 15:04:05"}}</span>
+        <span><strong>Date:</strong> {{.CreatedAt.Format "01/02/2006 03:04:05 PM"}}</span>
     </div>
 
     <div id="player"></div>
