@@ -2,6 +2,10 @@
 
 Lightweight application to record and view sessions of your website users.
 
+## Showcase
+
+<video src="https://github.com/berti92/opensessionreplay/raw/refs/heads/main/showcase.mp4" width="320" height="240" controls></video>
+
 ## Features
 
 * Record sessions of your users using your website
