@@ -480,30 +480,31 @@ func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
                 renderSessions(data);
                 renderStats(data);
             } catch (error) {
-                document.getElementById('content').innerHTML = '<div class="error">Fehler beim Laden der Sessions: ' + error.message + '</div>';
+			    console.log('Error loading sessions:', error);
+                document.getElementById('content').innerHTML = '<div class="error">No data to display</div>';
             }
         }
         
         function renderStats(data) {
             const stats = document.getElementById('stats');
-            stats.innerHTML = '📊 <strong>' + data.total + '</strong> Sessions insgesamt | Seite <strong>' + data.page + '</strong> von <strong>' + data.pages + '</strong>';
+            stats.innerHTML = '📊 <strong>' + data.total + '</strong> total sessions | page <strong>' + data.page + '</strong> from <strong>' + data.pages + '</strong>';
         }
         
         function renderSessions(data) {
             const content = document.getElementById('content');
             
             if (data.sessions.length === 0) {
-                content.innerHTML = '<div class="error">Keine Sessions gefunden.</div>';
+                content.innerHTML = '<div class="error">No sessions found.</div>';
                 return;
             }
             
             let html = '<table class="sessions-table"><thead><tr>';
             html += '<th>Session ID</th>';
             html += '<th>URL</th>';
-            html += '<th>Titel</th>';
-            html += '<th>Datum/Zeit</th>';
+            html += '<th>Title</th>';
+            html += '<th>Date/Time</th>';
             html += '<th>Browser Agent</th>';
-            html += '<th>Aktion</th>';
+            html += '<th>Action</th>';
             html += '</tr></thead><tbody>';
             
             data.sessions.forEach(session => {
@@ -514,7 +515,7 @@ func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
                 html += '<td>' + session.title + '</td>';
                 html += '<td>' + date + '</td>';
                 html += '<td class="user-agent">' + session.user_agent + '</td>';
-                html += '<td><a href="/session/' + session.session_id + '" class="session-link" target="_blank">📽️ Ansehen</a></td>';
+                html += '<td><a href="/session/' + session.session_id + '" class="session-link" target="_blank">📽️ View</a></td>';
                 html += '</tr>';
             });
             
@@ -627,8 +628,8 @@ func (s *Server) viewSessionHandler(w http.ResponseWriter, r *http.Request) {
 
     <div class="session-info">
         <span><strong>URL:</strong> <a href="{{.URL}}" target="_blank" style="color: #007cba;">{{.URL}}</a></span>
-        <span><strong>Titel:</strong> {{.Title}}</span>
-        <span><strong>Datum:</strong> {{.CreatedAt.Format "02.01.2006 15:04:05"}}</span>
+        <span><strong>Title:</strong> {{.Title}}</span>
+        <span><strong>Date:</strong> {{.CreatedAt.Format "02.01.2006 15:04:05"}}</span>
     </div>
 
     <div id="player"></div>
