@@ -53,6 +53,24 @@ The `recorder.js` must be AFTER the rrweb. If you changed the environment variab
 
 I recommend changing the two variables, because any adblocker will block rrweb, which is needed to record the sessions.
 
+## Development
+
+Dependencies:
+
+* NPM latest version
+* Go latest version
+
+Install rrweb:
+```
+npm ci --only=production
+```
+
+Run the go application:
+```
+go run main.go
+```
+!!! Takes ages for the first time !!!
+
 ## License
 
 GPL v3
