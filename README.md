@@ -2,6 +2,10 @@
 
 Lightweight application to record and view sessions of your website users.
 
+## Showcase
+
+![](./showcase.mp4)
+
 ## Features
 
 * Record sessions of your users using your website
