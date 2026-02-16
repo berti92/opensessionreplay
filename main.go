@@ -545,9 +545,6 @@ func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
         
         // Load sessions on page load
         loadSessions();
-        
-        // Auto-refresh every 30 seconds
-        setInterval(() => loadSessions(currentPage), 30000);
     </script>
 </body>
 </html>
