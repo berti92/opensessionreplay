@@ -2,6 +2,10 @@
 
 Lightweight application to record and view sessions of your website users.
 
+## Project is archived
+
+Please use umami instead.
+
 ## Showcase
 
 ![showcase](https://github.com/user-attachments/assets/e1166eca-5900-4b9e-8445-100fc4dd8e3d)
